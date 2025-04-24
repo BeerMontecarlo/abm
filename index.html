@@ -320,7 +320,7 @@
 
     <script>
         // Configuración
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyo5cCqWQpQz84_AP7MwWzvg-5lbpnRogzlVgGqk8P8c2RK4lCiR4K1I7Bjh5A99QHJyw/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxah6o05FfzpFG5CLOeX1_UqN_iYssLN7Cbo53OAdmrSHDyOfXhpTwhiFzZmcC0kmWNsw/exec';
         let currentAction = 'create';
         let records = [];
         let recordToDelete = null;
@@ -356,50 +356,100 @@
             });
         });
 
-     
+        // Implementación JSONP
+        function jsonpRequest(url, callbackName, callback) {
+            // Crear un nombre único para la función de callback
+            const uniqueCallbackName = callbackName + '_' + Math.round(100000 * Math.random());
+            
+            // Crear el script
+            const script = document.createElement('script');
+            script.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + uniqueCallbackName;
+            
+            // Definir la función de callback global
+            window[uniqueCallbackName] = function(data) {
+                // Limpiar
+                delete window[uniqueCallbackName];
+                document.body.removeChild(script);
+                
+                // Llamar al callback
+                callback(data);
+            };
+            
+            // Manejar errores
+            script.onerror = function() {
+                delete window[uniqueCallbackName];
+                document.body.removeChild(script);
+                callback({ status: 'error', message: 'Error al cargar el script' });
+            };
+            
+            // Añadir el script al documento
+            document.body.appendChild(script);
+        }
+
+        // Función para enviar datos (usando JSONP para GET y simulando POST)
         async function sendDataToSheet(action, data = {}) {
             try {
-                const response = await fetch(SCRIPT_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ action, data }),
-                });
+                // Mostrar estado de carga
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = 'Procesando <span class="loading"></span>';
+
+                // Configurar la solicitud
+                const requestOptions = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    action: action,
+                    data: data 
+                })
+                };
+
+                // Agregar parámetro aleatorio para evitar caché
+                const url = `${SCRIPT_URL}?nocache=${Date.now()}`;
+                
+                const response = await fetch(url, requestOptions);
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`Error en la solicitud: ${response.status}`);
                 }
                 
-                return await response.json();
+                const result = await response.json();
+                
+                if (result.status !== 'success') {
+                throw new Error(result.message || 'Error en el servidor');
+                }
+                
+                return result;
+                
             } catch (error) {
-                console.error('Error completo:', error);
+                console.error('Error al enviar datos:', {
+                error: error.message,
+                action,
+                data,
+                stack: error.stack
+                });
+                
+                // Mostrar error al usuario
+                alert(`Error: ${error.message}`);
+                
                 return { 
-                    status: 'error', 
-                    message: error.message,
-                    details: 'Verifica la consola para más información' 
+                status: 'error', 
+                message: error.message
                 };
+            } finally {
+                // Restaurar botón
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Guardar';
             }
-        }
+            }
+      
         // Cargar registros
         async function loadRecords() {
             try {
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = 'Cargando <span class="loading"></span>';
                 
-                // Simulación para desarrollo
-                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                    records = [
-                        { id: 1, nombre: 'Ejemplo 1', email: 'ejemplo1@test.com', telefono: '123456789', direccion: 'Calle 123' },
-                        { id: 2, nombre: 'Ejemplo 2', email: 'ejemplo2@test.com', telefono: '987654321', direccion: 'Avenida 456' }
-                    ];
-                    renderTable(records);
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Guardar';
-                    return;
-                }
-
-                // En producción, usar API real
                 const response = await sendDataToSheet('read');
                 if (response.status === 'success') {
                     records = response.data || [];
